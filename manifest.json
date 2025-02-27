@@ -1,0 +1,24 @@
+{
+    "name": "Cineplex with Ratings",
+    "description": "Add movie ratings to Cineplex pages",
+    "version": "1.0",
+    "manifest_version": 3,
+    "icons": {
+        "16": "images/icon-16.png",
+        "48": "images/icon-48.png",
+        "128": "images/icon-128.png"
+    },
+    "permissions": [
+      "activeTab"
+    ],
+    "host_permissions": [
+      "https://www.cineplex.com/*",
+      "https://api.themoviedb.org/*"
+    ],
+    "content_scripts": [
+      {
+        "matches": ["https://www.cineplex.com/*"],
+        "js": ["content.js"]
+      }
+    ]
+  }
