@@ -1,167 +1,133 @@
-var titleContainer = null;
+var titleSelector = null;
 
 // Save processed movie titles
 const processedMovies = new Set();
 
-// Clean movie titles when needed
+// Clean movie title when needed
 function cleanMovieTitle(title) {
-    console.log('Original title:', title);
-    
-    // Remove suffixes that look like *** w/e.s.t. (for movies in foreign languages)
-    const cleanedTitle = title.replace(/\s*\([^)]*w\/e\.s\.t\.\)\s*$/i, '');
-    
-    console.log('Cleaned title:', cleanedTitle);
-    return cleanedTitle.trim();
+    // Remove suffixes that look like "(*** e.s.t.)"
+    return title.replace(/\s*\([^)]*e\.s\.t\.\)\s*$/i, '');
 }
 
 function extractMovieTitles() {
-    console.log('Starting to extract movie titles...');
     const currentUrl = window.location.href;
-    console.log('Current URL:', currentUrl);
     
-    // Theatre page
+    // Set appropriate selector based on page type
     if (currentUrl.includes("openTM=true")){ 
-        titleContainer = "#\\31 -meta-nav > div > div > div > div > div > div.ShowtimesContent_theatreAccordionContainer__5Mfdr > div > div > h2";
-        console.log('Using Theatre page selector:', titleContainer);
+        // Theatre page
+        titleSelector = ".MovieDetails_movieInfoWrapper__oGmlx > h3";
+    } else if (currentUrl.includes("search?q=")){
+        // Search Page
+        titleSelector = ".Movie_movieDetails__c0c_c > h3";
     } else {
-        titleContainer = "#homepage_movie_grid > div.MovieGridBlock_posterContainer__lNJp6 > div > div.Poster_filmContainer__fN677 > pre > p";
-        console.log('Using homepage selector:', titleContainer);
+        // Other pages including homepage
+        titleSelector = ".Poster_filmContainer__fN677 > pre > p";
     }
 
-    const movieElements = document.querySelectorAll(titleContainer);
-    console.log('Movie elements found:', movieElements.length);
+    const movieElements = document.querySelectorAll(titleSelector);
 
     if (movieElements.length === 0) {
-        console.warn('No movie elements found with selector:', titleContainer);
+        console.warn('No movie elements found with selector:', titleSelector);
         return [];
     }
     
-    const titles = Array.from(movieElements)
+    return Array.from(movieElements)
                         .map(el => el.textContent.trim())
                         .filter(title => !processedMovies.has(title) && title.length > 0); // Filter out processed movies
-    console.log('Extracted movie title:', titles);
-    return titles;
-
   }
 
-
 async function fetchTMDBRating(movieTitle) {
-    console.log('Starting to fetch movie data:', movieTitle);
+    console.log('Fetching data for:', movieTitle);
     try {
         const apiKey = 'ce0ed6cdc86b2450dcbcc02987b32b07';
         const url = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${encodeURIComponent(movieTitle)}`;
         // https://developer.themoviedb.org/docs/search-and-query-for-details
-        console.log('API request URL:', url);
 
         const response = await fetch(url);
         const data = await response.json();
-        console.log('API returned data:', data);
         
         if (data.results && data.results.length > 0) {
             const movie = data.results[0];
-            console.log('Found movie:', movie.title, ': ', movie.vote_average);
+            console.log('Found movie:', movie.title, 'with rating:', movie.vote_average);
             return {
                 id: movie.id,
                 rating: movie.vote_average || null,
                 title: movie.title
             };
         }
-
+        
         // If no results found, try with cleaned title
-        console.warn('No movie rating data found, trying with cleaned title');
+        console.log('No results found, trying with cleaned title');
         const cleanedTitle = cleanMovieTitle(movieTitle);
-
+        
         // Only try with cleaned title if it's different from the original
         if (cleanedTitle !== movieTitle) {
-            console.log('Trying with cleaned title:', cleanedTitle);
+            console.log('Using cleaned title for second attempt:', cleanedTitle);
             const cleanedUrl = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${encodeURIComponent(cleanedTitle)}`;
+            console.log('Second attempt API URL:', cleanedUrl);
+            
             const cleanedResponse = await fetch(cleanedUrl);
             const cleanedData = await cleanedResponse.json();
             
             if (cleanedData.results && cleanedData.results.length > 0) {
                 const movie = cleanedData.results[0];
-                console.log('Found movie with cleaned title:', movie.title, ': ', movie.vote_average);
+                console.log('Found movie with cleaned title:', movie.title, 'with rating:', movie.vote_average);
                 return {
                     id: movie.id,
                     rating: movie.vote_average || null,
                     title: movie.title
                 };
             }
+        } else {
+            console.log('Cleaned title is same as original, skipping second attempt');
         }
-
-        console.warn('Could not find movie rating data');
+        
+        console.warn('No movie data found for:', movieTitle);
         return null;
     } catch (error) {
-        console.error('Error fetching movie ${movieTitle} rating:', error);
+        console.error(`Error fetching movie ${movieTitle} rating:`, error);
         return null;
     }
-} 
+}
 
-window.addEventListener('load', async () => {
-    console.log('Page loaded, starting to process movie ratings');
+async function processMovie(movieTitle) {
+    if (processedMovies.has(movieTitle)) return;
+    
     try {
-        const movieTitles = extractMovieTitles();
-        console.log('All extracted movie titles:', movieTitles);
-        
-        if (movieTitles.length === 0) {
-            console.warn('No movie titles found, script execution stopped');
-            return;
-        }
-        
-        // Limit concurrency
-        for (const movieTitle of movieTitles) {
-            console.log('Starting to process movie:', movieTitle);
-            try {
-                const rating = await fetchTMDBRating(movieTitle);
-                console.log('Movie rating result:', movieTitle, rating);
-                if (rating !== null) {
-                    displayRatingOnPage(movieTitle, rating);
-                    console.log('Rating displayed on page');
-                } else {
-                    console.warn('Could not get rating, skipping');
-                }
-            } catch (error) {
-                console.error(`Error processing movie ${movieTitle}:`, error);
-            }
+        const rating = await fetchTMDBRating(movieTitle);
+        if (rating) {
+            displayRatingOnPage(movieTitle, rating);
         }
     } catch (error) {
-        console.error('Error during movie rating process:', error);
+        console.error(`Error processing movie ${movieTitle}:`, error);
     }
-});
+}
 
-// Display rating on the page
 function displayRatingOnPage(movieTitle, movieData) {
-    console.log('Preparing to display rating on page:', movieTitle, movieData);
-
     // Mark this movie as processed
     processedMovies.add(movieTitle);
 
     // Build TMDB movie page URL
     const tmdbUrl = `https://www.themoviedb.org/movie/${movieData.id}`;
 
-    const movieElements = document.querySelectorAll(titleContainer);
-    console.log('Number of potential matching elements found:', movieElements.length);
+    const movieElements = document.querySelectorAll(titleSelector);
     
-    let found = false;
-    movieElements.forEach(element => {
-        console.log('Checking element:', element.textContent.trim());
+    for (const element of movieElements) {
         if (element.textContent.trim() === movieTitle) {
-            console.log('atching element found, adding rating');
-            found = true;
-
             // Create rating container
             const ratingContainer = document.createElement('span');
             ratingContainer.className = 'tmdb-rating'; 
             ratingContainer.style.marginLeft = '10px';
+
             const ratingLink = document.createElement('a');
             ratingLink.href = tmdbUrl;
-            ratingLink.textContent = `TMDB: ${movieData.rating.toFixed(1)}/10`;
-            ratingLink.style.color = 'red';
+            ratingLink.textContent = `${movieData.rating.toFixed(1)}`;
+            ratingLink.style.color = 'rgb(20, 182, 220)';
             ratingLink.style.textDecoration = 'none';
             ratingLink.style.fontWeight = 'bold';
             ratingLink.target = '_blank'; // open in new tab
             ratingLink.title = `Check out ${movieData.title} on TMDB`;
-            
+
             // Add hover effect
             ratingLink.addEventListener('mouseover', () => {
                 ratingLink.style.textDecoration = 'underline';
@@ -169,99 +135,77 @@ function displayRatingOnPage(movieTitle, movieData) {
             ratingLink.addEventListener('mouseout', () => {
                 ratingLink.style.textDecoration = 'none';
             });
-            
+
             ratingContainer.appendChild(ratingLink);
             element.appendChild(ratingContainer);
-            found = true;
+            return; // Exit once found
         }
-    });
-    
-    if (!found) {
-        console.warn('No matching movie title element found:', movieTitle);
     }
+
+    console.warn('No matching movie title element found:', movieTitle);
 }
 
-// Process newly discovered movies
-async function processNewMovies() {
+// Process all movies on the page
+async function processMovies() {
     const movieTitles = extractMovieTitles();
-    console.log('Newly discovered movie titles:', movieTitles);
     
+    if (movieTitles.length === 0) return;
+    
+    // Process movies sequentially to avoid hitting API rate limits
     for (const movieTitle of movieTitles) {
-        const rating = await fetchTMDBRating(movieTitle);
-        if (rating !== null) {
-            displayRatingOnPage(movieTitle, rating);
-        }
+        await processMovie(movieTitle);
     }
 }
 
-// Set up MutationObserver to listen for DOM changes
+// Set up MutationObserver with debouncing
 function setupObserver() {
-    console.log('Setting up DOM change observer');
+    let debounceTimer;
     
-    // Throttle function to avoid frequent processing
-    let timeout;
-    const throttledProcess = () => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-            processNewMovies();
-        }, 1000); // 1 second delay to avoid frequent processing
-    };
+    // Film container selectors that indicate new movies have loaded
+    const relevantSelectors = [
+        '.MovieDetails_movieInfoWrapper__oGmlx',
+        '.Movie_movieDetails__c0c_c',
+        '.Poster_filmContainer__fN677'
+    ];
     
-    // Create observer instance
     const observer = new MutationObserver((mutations) => {
-        console.log('DOM changes detected');
-        let shouldProcess = false;
+        // Check if any relevant nodes were added
+        const hasRelevantChanges = mutations.some(mutation => 
+            mutation.type === 'childList' && 
+            Array.from(mutation.addedNodes).some(node => {
+                if (node.nodeType !== Node.ELEMENT_NODE) return false;
+                
+                // Check if this node or its children match our selectors
+                return relevantSelectors.some(selector => 
+                    node.matches?.(selector) || node.querySelector?.(selector)
+                ) || node.tagName === 'PRE';
+            })
+        );
         
-        for (const mutation of mutations) {
-            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                // Check if nodes potentially containing movie titles were added
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType === 1) { // Element node
-                        if (node.querySelector('pre > p') || 
-                            node.querySelector('.Poster_filmContainer__fN677') ||
-                            node.tagName === 'PRE' ||
-                            node.classList.contains('movie-title')) {
-                            shouldProcess = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            if (shouldProcess) break;
-        }
-        
-        if (shouldProcess) {
-            console.log('New movie elements detected, processing...');
-            throttledProcess();
+        if (hasRelevantChanges) {
+            // Debounce to avoid multiple rapid calls
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(processMovies, 500);
         }
     });
     
-    //  Configure observer options
-    const config = { 
-        childList: true, // Observe direct children additions or removals
-        subtree: true,   // Observe all descendant nodes
-        attributes: false // Don't observe attribute changes
-    };
-    
-    // Start observing the entire document
-    observer.observe(document.body, config);
-    
-    console.log('DOM observer started');
+    // Start observing
+    observer.observe(document.body, { 
+        childList: true,
+        subtree: true,
+        attributes: false
+    });
 }
 
 // Initialization
 function init() {
-    console.log('Extension initialized');
-    // First process movies currently on the page
-    processNewMovies();
-    // Set up observer to handle newly loaded movies
+    processMovies();
     setupObserver();
 }
 
-// Initialize when the page is fully loaded
+// Initialize when ready
 if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', init);
 } else {
-    init(); // If page is already loaded, initialize directly
+    init();
 }
