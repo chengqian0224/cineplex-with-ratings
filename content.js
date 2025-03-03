@@ -1,25 +1,35 @@
 var titleContainer = null;
 
-// 保存已处理过的电影标题，避免重复处理
+// Save processed movie titles
 const processedMovies = new Set();
 
-function extractMovieTitles() {
-    console.log('开始提取电影标题');
-    const currentUrl = window.location.href;
-    console.log('当前页面URL:', currentUrl);
+// Clean movie titles when needed
+function cleanMovieTitle(title) {
+    console.log('Original title:', title);
     
+    // Remove suffixes that look like *** w/e.s.t. (for movies in foreign languages)
+    const cleanedTitle = title.replace(/\s*\([^)]*w\/e\.s\.t\.\)\s*$/i, '');
+    
+    console.log('Cleaned title:', cleanedTitle);
+    return cleanedTitle.trim();
+}
 
+function extractMovieTitles() {
+    console.log('Starting to extract movie titles...');
+    const currentUrl = window.location.href;
+    console.log('Current URL:', currentUrl);
+    
     // Theatre page
     if (currentUrl.includes("openTM=true")){ 
         titleContainer = "#\\31 -meta-nav > div > div > div > div > div > div.ShowtimesContent_theatreAccordionContainer__5Mfdr > div > div > h2";
-        console.log('使用Theatre页面选择器:', titleContainer);
+        console.log('Using Theatre page selector:', titleContainer);
     } else {
         titleContainer = "#homepage_movie_grid > div.MovieGridBlock_posterContainer__lNJp6 > div > div.Poster_filmContainer__fN677 > pre > p";
-        console.log('使用主页选择器:', titleContainer);
+        console.log('Using homepage selector:', titleContainer);
     }
 
     const movieElements = document.querySelectorAll(titleContainer);
-    console.log('找到的电影元素数量:', movieElements.length);
+    console.log('Movie elements found:', movieElements.length);
 
     if (movieElements.length === 0) {
         console.warn('No movie elements found with selector:', titleContainer);
@@ -28,34 +38,58 @@ function extractMovieTitles() {
     
     const titles = Array.from(movieElements)
                         .map(el => el.textContent.trim())
-                        .filter(title => !processedMovies.has(title) && title.length > 0); // 过滤掉已处理过的电影
-    console.log('提取到的电影标题:', titles);
+                        .filter(title => !processedMovies.has(title) && title.length > 0); // Filter out processed movies
+    console.log('Extracted movie title:', titles);
     return titles;
 
   }
 
 
 async function fetchTMDBRating(movieTitle) {
-    console.log('开始获取电影数据:', movieTitle);
+    console.log('Starting to fetch movie data:', movieTitle);
     try {
         const apiKey = 'ce0ed6cdc86b2450dcbcc02987b32b07';
         const url = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${encodeURIComponent(movieTitle)}`;
-        console.log('API请求URL:', url);
+        // https://developer.themoviedb.org/docs/search-and-query-for-details
+        console.log('API request URL:', url);
 
         const response = await fetch(url);
         const data = await response.json();
-        console.log('API返回数据:', data);
+        console.log('API returned data:', data);
         
         if (data.results && data.results.length > 0) {
             const movie = data.results[0];
-            console.log('获取到电影:', movie.title, ': ', movie.vote_average);
+            console.log('Found movie:', movie.title, ': ', movie.vote_average);
             return {
                 id: movie.id,
                 rating: movie.vote_average || null,
                 title: movie.title
             };
         }
-        console.warn('未找到电影评分数据');
+
+        // If no results found, try with cleaned title
+        console.warn('No movie rating data found, trying with cleaned title');
+        const cleanedTitle = cleanMovieTitle(movieTitle);
+
+        // Only try with cleaned title if it's different from the original
+        if (cleanedTitle !== movieTitle) {
+            console.log('Trying with cleaned title:', cleanedTitle);
+            const cleanedUrl = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${encodeURIComponent(cleanedTitle)}`;
+            const cleanedResponse = await fetch(cleanedUrl);
+            const cleanedData = await cleanedResponse.json();
+            
+            if (cleanedData.results && cleanedData.results.length > 0) {
+                const movie = cleanedData.results[0];
+                console.log('Found movie with cleaned title:', movie.title, ': ', movie.vote_average);
+                return {
+                    id: movie.id,
+                    rating: movie.vote_average || null,
+                    title: movie.title
+                };
+            }
+        }
+
+        console.warn('Could not find movie rating data');
         return null;
     } catch (error) {
         console.error('Error fetching movie ${movieTitle} rating:', error);
@@ -64,55 +98,55 @@ async function fetchTMDBRating(movieTitle) {
 } 
 
 window.addEventListener('load', async () => {
-    console.log('页面加载完成，开始处理电影评分');
+    console.log('Page loaded, starting to process movie ratings');
     try {
         const movieTitles = extractMovieTitles();
-        console.log('提取到的所有电影标题:', movieTitles);
+        console.log('All extracted movie titles:', movieTitles);
         
         if (movieTitles.length === 0) {
-            console.warn('没有找到任何电影标题，脚本停止执行');
+            console.warn('No movie titles found, script execution stopped');
             return;
         }
         
-        // 限制并发数
+        // Limit concurrency
         for (const movieTitle of movieTitles) {
-            console.log('开始处理电影:', movieTitle);
+            console.log('Starting to process movie:', movieTitle);
             try {
                 const rating = await fetchTMDBRating(movieTitle);
-                console.log('电影评分获取结果:', movieTitle, rating);
+                console.log('Movie rating result:', movieTitle, rating);
                 if (rating !== null) {
                     displayRatingOnPage(movieTitle, rating);
-                    console.log('已在页面上显示评分');
+                    console.log('Rating displayed on page');
                 } else {
-                    console.warn('未能获取到评分，跳过显示');
+                    console.warn('Could not get rating, skipping');
                 }
             } catch (error) {
-                console.error(`处理电影 ${movieTitle} 时出错:`, error);
+                console.error(`Error processing movie ${movieTitle}:`, error);
             }
         }
     } catch (error) {
-        console.error('电影评分处理过程中出错:', error);
+        console.error('Error during movie rating process:', error);
     }
 });
 
-// 在页面上显示评分
+// Display rating on the page
 function displayRatingOnPage(movieTitle, movieData) {
-    console.log('准备在页面上显示评分:', movieTitle, movieData);
+    console.log('Preparing to display rating on page:', movieTitle, movieData);
 
-    // 标记此电影已处理
+    // Mark this movie as processed
     processedMovies.add(movieTitle);
 
-    // 构建TMDB电影页面URL
+    // Build TMDB movie page URL
     const tmdbUrl = `https://www.themoviedb.org/movie/${movieData.id}`;
 
     const movieElements = document.querySelectorAll(titleContainer);
-    console.log('找到的可能匹配元素数量:', movieElements.length);
+    console.log('Number of potential matching elements found:', movieElements.length);
     
     let found = false;
     movieElements.forEach(element => {
-        console.log('检查元素:', element.textContent.trim());
+        console.log('Checking element:', element.textContent.trim());
         if (element.textContent.trim() === movieTitle) {
-            console.log('找到匹配元素，添加评分');
+            console.log('atching element found, adding rating');
             found = true;
 
             // Create rating container
@@ -125,10 +159,10 @@ function displayRatingOnPage(movieTitle, movieData) {
             ratingLink.style.color = 'red';
             ratingLink.style.textDecoration = 'none';
             ratingLink.style.fontWeight = 'bold';
-            ratingLink.target = '_blank'; // 在新标签页打开
-            ratingLink.title = `查看 ${movieData.title} 在TMDB的详情`;
+            ratingLink.target = '_blank'; // open in new tab
+            ratingLink.title = `Check out ${movieData.title} on TMDB`;
             
-            // 添加鼠标悬停效果
+            // Add hover effect
             ratingLink.addEventListener('mouseover', () => {
                 ratingLink.style.textDecoration = 'underline';
             });
@@ -143,14 +177,14 @@ function displayRatingOnPage(movieTitle, movieData) {
     });
     
     if (!found) {
-        console.warn('未找到匹配的电影标题元素:', movieTitle);
+        console.warn('No matching movie title element found:', movieTitle);
     }
 }
 
-// 处理新发现的电影
+// Process newly discovered movies
 async function processNewMovies() {
     const movieTitles = extractMovieTitles();
-    console.log('新发现的电影标题:', movieTitles);
+    console.log('Newly discovered movie titles:', movieTitles);
     
     for (const movieTitle of movieTitles) {
         const rating = await fetchTMDBRating(movieTitle);
@@ -160,29 +194,29 @@ async function processNewMovies() {
     }
 }
 
-// 设置MutationObserver监听DOM变化
+// Set up MutationObserver to listen for DOM changes
 function setupObserver() {
-    console.log('设置DOM变化观察器');
+    console.log('Setting up DOM change observer');
     
-    // 节流函数，避免频繁处理
+    // Throttle function to avoid frequent processing
     let timeout;
     const throttledProcess = () => {
         clearTimeout(timeout);
         timeout = setTimeout(() => {
             processNewMovies();
-        }, 1000); // 1秒延迟，避免频繁处理
+        }, 1000); // 1 second delay to avoid frequent processing
     };
     
-    // 创建观察器实例
+    // Create observer instance
     const observer = new MutationObserver((mutations) => {
-        console.log('检测到DOM变化');
+        console.log('DOM changes detected');
         let shouldProcess = false;
         
         for (const mutation of mutations) {
             if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                // 检查是否添加了可能包含电影标题的节点
+                // Check if nodes potentially containing movie titles were added
                 for (const node of mutation.addedNodes) {
-                    if (node.nodeType === 1) { // 元素节点
+                    if (node.nodeType === 1) { // Element node
                         if (node.querySelector('pre > p') || 
                             node.querySelector('.Poster_filmContainer__fN677') ||
                             node.tagName === 'PRE' ||
@@ -198,36 +232,36 @@ function setupObserver() {
         }
         
         if (shouldProcess) {
-            console.log('检测到新的电影元素，处理中...');
+            console.log('New movie elements detected, processing...');
             throttledProcess();
         }
     });
     
-    // 配置观察选项
+    //  Configure observer options
     const config = { 
-        childList: true, // 观察直接子节点的添加或删除
-        subtree: true,   // 观察所有后代节点
-        attributes: false // 不观察属性变化
+        childList: true, // Observe direct children additions or removals
+        subtree: true,   // Observe all descendant nodes
+        attributes: false // Don't observe attribute changes
     };
     
-    // 开始观察整个文档
+    // Start observing the entire document
     observer.observe(document.body, config);
     
-    console.log('DOM观察器已启动');
+    console.log('DOM observer started');
 }
 
-// 初始化函数
+// Initialization
 function init() {
-    console.log('扩展初始化');
-    // 首次处理当前页面上的电影
+    console.log('Extension initialized');
+    // First process movies currently on the page
     processNewMovies();
-    // 设置观察器以处理新加载的电影
+    // Set up observer to handle newly loaded movies
     setupObserver();
 }
 
-// 当页面加载完成后初始化
+// Initialize when the page is fully loaded
 if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', init);
 } else {
-    init(); // 如果页面已加载完成则直接初始化
+    init(); // If page is already loaded, initialize directly
 }
